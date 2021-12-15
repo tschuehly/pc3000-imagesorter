@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/syrinsecurity/gologger"
 	"github.com/webview/webview"
@@ -24,6 +25,9 @@ var (
 func main() {
 	createWebView()
 
+}
+
+func moveImages(sourceFolder string) string {
 	if errLog != nil {
 		panic(errLog)
 	}
@@ -33,7 +37,6 @@ func main() {
 	//logger.WritePrint("Gebe den Pfad des Ordners an: ")
 	//var sourceFolder, _ = reader.ReadString('\n')
 	//logger.WritePrint("Input: " + sourceFolder)
-	sourceFolder := "C:\\Users\\thoma\\Desktop\\jpeg - Copy - Copy"
 	folderUrls := extractSubDirectories(sourceFolder)
 
 	var goCount = 0
@@ -61,7 +64,7 @@ func main() {
 	wg.Wait()
 	logger.WritePrint("GOROUTINE: ", goCount)
 	logger.WritePrint("EXECUTION TIME: ", time.Since(start))
-
+	return "Successfully moved Images"
 }
 
 var count int = 0
@@ -71,19 +74,39 @@ func createWebView() {
 	w := webview.New(true)
 	defer w.Destroy()
 
-	w.SetSize(600, 200, webview.HintNone)
+	w.SetSize(1000, 600, webview.HintNone)
 
-	w.Bind("btn", func() int {
+	w.Bind("goFunctionName", func() int {
 		count++
+		fmt.Println(count)
 		return count
 	})
 
-	file, _ := ioutil.ReadFile("index.html")
+	w.Bind("extractSubDirectories", func(sourceFolder string) string {
+		return moveImages(sourceFolder)
+	})
 
-	stringFile := string(file)
-
-	//Create UI with data URI
-	w.Navigate(`data:text/html,` + stringFile)
+	w.Navigate(`data:text/html,
+  <!doctype html>
+  <html>
+   <head><title>Hello</title></head>
+   <body>
+   	<h1>Hello, world!</h1>
+   	<button onclick="clickButton()">click</button>
+	<div id="div1"></div>
+	<p>Hier den Pfad eingeben</p>
+	<input name="searchTxt" type="text" id="searchTxt" class="searchField"/>
+   </body>
+   <script>
+   function clickButton(){
+       extractSubDirectories(document.getElementById("searchTxt").value).then((x) => {
+           const elem = document.getElementById("div1")
+           elem.append(x)
+           console.log(x) 
+       })
+   }
+   </script>
+  </html>`)
 	w.Run()
 }
 

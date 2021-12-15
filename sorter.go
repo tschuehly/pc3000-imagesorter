@@ -4,6 +4,7 @@ import (
 	"errors"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/syrinsecurity/gologger"
+	"github.com/webview/webview"
 	"io/ioutil"
 	"log"
 	"os"
@@ -21,18 +22,18 @@ var (
 )
 
 func main() {
+	createWebView()
 
 	if errLog != nil {
 		panic(errLog)
 	}
-
 	var wg sync.WaitGroup
 	start := time.Now()
 	//reader := bufio.NewReader(os.Stdin)
 	//logger.WritePrint("Gebe den Pfad des Ordners an: ")
 	//var sourceFolder, _ = reader.ReadString('\n')
 	//logger.WritePrint("Input: " + sourceFolder)
-	sourceFolder := "C:\\Users\\thoma\\Desktop\\jpeg - Copy"
+	sourceFolder := "C:\\Users\\thoma\\Desktop\\jpeg - Copy - Copy"
 	folderUrls := extractSubDirectories(sourceFolder)
 
 	var goCount = 0
@@ -61,6 +62,29 @@ func main() {
 	logger.WritePrint("GOROUTINE: ", goCount)
 	logger.WritePrint("EXECUTION TIME: ", time.Since(start))
 
+}
+
+var count int = 0
+
+func createWebView() {
+
+	w := webview.New(true)
+	defer w.Destroy()
+
+	w.SetSize(600, 200, webview.HintNone)
+
+	w.Bind("btn", func() int {
+		count++
+		return count
+	})
+
+	file, _ := ioutil.ReadFile("index.html")
+
+	stringFile := string(file)
+
+	//Create UI with data URI
+	w.Navigate(`data:text/html,` + stringFile)
+	w.Run()
 }
 
 func extractSubDirectories(sourceFolder string) map[string][]string {

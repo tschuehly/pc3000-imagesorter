@@ -2,3 +2,5 @@ github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd h1:CmH9+J6ZSsIjUK
 github.com/rwcarlsen/goexif v0.0.0-20190401172101-9e8deecbddbd/go.mod h1:hPqNNc0+uJM6H+SuU8sEs5K5IQeKccPqeSjfgcKGgPk=
 github.com/syrinsecurity/gologger v1.2.0 h1:rn65qdDPw2Ligy1LIL5DkRNWxUOONvmcY2j5NRcAPKg=
 github.com/syrinsecurity/gologger v1.2.0/go.mod h1:ubwZcTQchnGzvYYHC3hyaNDW1CfmZ+8+Didl/WJ7q2A=
+github.com/webview/webview v0.0.0-20210330151455-f540d88dde4e h1:z780M7mCrdt6KiICeW9SGirvQjxDlrVU+n99FO93nbI=
+github.com/webview/webview v0.0.0-20210330151455-f540d88dde4e/go.mod h1:rpXAuuHgyEJb6kXcXldlkOjU6y4x+YcASKKXJNUhh0Y=

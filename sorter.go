@@ -1,119 +1,79 @@
 package main
 
 import (
-	"bytes"
 	"errors"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/syrinsecurity/gologger"
-	"github.com/webview/webview"
 	"io/ioutil"
 	"log"
 	"os"
+	"path/filepath"
 	"regexp"
 	"runtime"
 	"strings"
 	"sync"
-	"text/template"
 	"time"
 )
 
 var (
 	// Create Global File Logger
 	logger, errLog = gologger.New("./log.txt", 2000)
+	progressChan   = make(chan int, 1)
 )
 
-func main() {
-	createWebView()
-
+type FolderDetails struct {
+	path      string
+	fileCount int
 }
 
-func moveImages(sourceFolder string) string {
+func main() {
 	if errLog != nil {
 		panic(errLog)
 	}
+	createWebView()
+}
+
+var counter = 0
+
+func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) string {
 	var wg sync.WaitGroup
 	start := time.Now()
-	//reader := bufio.NewReader(os.Stdin)
-	//logger.WritePrint("Gebe den Pfad des Ordners an: ")
-	//var sourceFolder, _ = reader.ReadString('\n')
-	//logger.WritePrint("Input: " + sourceFolder)
-	folderUrls := extractSubDirectories(sourceFolder)
-
 	var goCount = 0
-
+	var pCount = 0
 	for vendor := range folderUrls {
 		logger.WritePrint(folderUrls[vendor])
-		for _, folder := range folderUrls[vendor] {
-			files, _ := ioutil.ReadDir(sourceFolder + "\\" + folder)
+		for _, folderDetails := range folderUrls[vendor] {
+			files, _ := ioutil.ReadDir(filepath.Join(sourceFolder, folderDetails.path))
 			for _, fileInfo := range files {
 				fileInfo := fileInfo
-				folder := folder
+				folderDetails := folderDetails
 				vendor := vendor
 				sourceFolder := sourceFolder
-				sourceFileDir := sourceFolder + "\\" + folder + "\\"
+				sourceFileDir := filepath.Join(sourceFolder, folderDetails.path)
 				wg.Add(1)
-				go func() {
+				go func(progressCount *int) {
+					*progressCount = *progressCount + 1
+					progressChan <- *progressCount
 					defer wg.Done()
+					time.Sleep(200 * time.Millisecond)
 					saveFilePath := getFilePathToSave(sourceFileDir, vendor, sourceFolder, fileInfo)
 					createDirMoveFile(sourceFileDir, saveFilePath, fileInfo.Name())
-				}()
+					*progressCount = *progressCount - 1
+					progressChan <- *progressCount
+				}(&pCount)
 				goCount = runtime.NumGoroutine()
 			}
+			time.Sleep(2 * time.Second)
 		}
 	}
 	wg.Wait()
 	logger.WritePrint("GOROUTINE: ", goCount)
 	logger.WritePrint("EXECUTION TIME: ", time.Since(start))
+
+	logger.WritePrint("Moved ")
 	return "Successfully moved Images"
 }
 
-var count = 0
-
-func createWebView() {
-
-	w := webview.New(true)
-	defer w.Destroy()
-
-	w.SetSize(600, 600, webview.HintNone)
-	w.Init(loadAlpine())
-	w.Bind("extractSubDirectories", func(sourceFolder string) string {
-
-		folderUrls := extractSubDirectories(sourceFolder)
-		tmpl := template.Must(template.New("html").Parse(`<div>
-    {{range $vendor, $folderArray := .}}
-        <div>
-            <h2>Hersteller: {{$vendor}}</h2>
-            {{range $folder := $folderArray}}
-                <table>
-                    <tr>{{$folder}}</tr>
-                </table>
-            {{end}}
-        </div>
-    {{end}}
-</div>
-			`))
-		var html bytes.Buffer
-		_ = tmpl.Execute(&html, folderUrls)
-		return html.String()
-	})
-
-	w.Navigate(`data:text/html,` +
-		//language=HTML
-		`<!doctype html>
-<html lang="de" x-data="{ pathInput: '', tbl : '' }">
-<body style="padding: 2rem">
-    <h1>JPEG Sorter</h1>
-    <p>Hier den Pfad eingeben</p>
-    <input style="display:block;width: 30rem; margin-bottom: 1rem" type="text" x-model="pathInput"/>
-
-
-    <button @click="tbl = await extractSubDirectories(pathInput)">Ordner analysieren</button>
-    
-    <div x-html=tbl></div>
-</body>
-</html>`)
-	w.Run()
-}
 func loadAlpine() string {
 	file, err := os.Open("alpinejs@3.7.0_dist_cdn.min.js")
 	if err != nil {
@@ -129,21 +89,26 @@ func loadAlpine() string {
 	return string(b)
 }
 
-func extractSubDirectories(sourceFolder string) map[string][]string {
-	var folderUrls = make(map[string][]string)
-	files, err := ioutil.ReadDir(sourceFolder)
+func extractSubDirectories(sourceFolder string) map[string][]FolderDetails {
+	var folderUrls = make(map[string][]FolderDetails)
+	directories, err := ioutil.ReadDir(sourceFolder)
 	if err != nil {
 		log.Fatal(err)
 	}
-	for _, dir := range files {
+	for _, dir := range directories {
 		var dirName = dir.Name()
+		var dirEntryArray, err = os.ReadDir(filepath.Join(sourceFolder, dirName))
+		if err != nil {
+			logger.WritePrint(err)
+			os.Exit(1)
+		}
 		if strings.Contains(dirName, "Mpx") {
 			subString := strings.Split(dirName, "Mpx")
 			if subString[1] == "" {
-				folderUrls["noname"] = append(folderUrls["noname"], dirName)
+				folderUrls["noname"] = append(folderUrls["noname"], FolderDetails{dirName, len(dirEntryArray)})
 			} else if subString[1] != "" {
 				vendor := strings.TrimSpace(subString[1])
-				folderUrls[vendor] = append(folderUrls[vendor], dirName)
+				folderUrls[vendor] = append(folderUrls[vendor], FolderDetails{dirName, len(dirEntryArray)})
 			}
 		}
 	}
@@ -151,7 +116,7 @@ func extractSubDirectories(sourceFolder string) map[string][]string {
 }
 
 func getFilePathToSave(sourceFileDir string, vendor string, sourceFolder string, fileInfo os.FileInfo) string {
-	var sourceFilePath = sourceFileDir + fileInfo.Name()
+	var sourceFilePath = filepath.Join(sourceFileDir, fileInfo.Name())
 	var f, openErr = os.Open(sourceFilePath)
 	var saveFilePath string
 	if openErr != nil {
@@ -163,9 +128,9 @@ func getFilePathToSave(sourceFileDir string, vendor string, sourceFolder string,
 			year, month, timeNameError = getTimeFromFilename(fileInfo.Name())
 		}
 		if timeNameError != nil {
-			saveFilePath = sourceFolder + "\\" + vendor + "\\keinDatum\\"
+			saveFilePath = filepath.Join(sourceFolder, vendor, "keinDatum")
 		} else {
-			saveFilePath = sourceFolder + "\\" + vendor + "\\" + year + "\\" + month + "\\"
+			saveFilePath = filepath.Join(sourceFolder, vendor, year, month)
 		}
 	}
 	err := f.Close()
@@ -214,9 +179,9 @@ func createDirMoveFile(sourceFileDir string, saveDirPath string, fileName string
 		logger.WriteString("ERROR: could not create dir: " + saveDirPath)
 		logger.WriteString(err)
 	} else {
-		logger.WritePrint("Move file: " + sourceFileDir + fileName)
-		logger.WritePrint("To:        " + saveDirPath + fileName)
-		err := os.Rename(sourceFileDir+fileName, saveDirPath+fileName)
+		logger.WritePrint("Move file: " + filepath.Join(sourceFileDir+fileName))
+		logger.WritePrint("To:        " + filepath.Join(saveDirPath+fileName))
+		err := os.Rename(filepath.Join(sourceFileDir+fileName), filepath.Join(saveDirPath+fileName))
 		if err != nil {
 			logger.WriteString("ERROR: could not move File " + sourceFileDir + fileName + " to " + saveDirPath + fileName)
 			logger.WriteString(err)

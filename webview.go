@@ -12,19 +12,20 @@ func createWebView() {
 	webView := webview.New(true)
 	defer webView.Destroy()
 
-	webView.SetSize(1000, 600, webview.HintNone)
+	webView.SetSize(1000, 1080, webview.HintNone)
 	webView.Init(loadAlpine())
 
 	var folderUrls map[string][]FolderDetails
 
 	go func() {
 		for true {
-			prog := <-progressChan
-			js := fmt.Sprintf(`document.getElementById("counter").append('.%d.');`, prog)
+			//prog := <-progressChan
+			mux.RLock()
+			js := fmt.Sprintf(`document.getElementById("counter").innerHTML = '.%d.';`, pCount)
 			//js := fmt.Sprintf(`console.log(%d)`, prog)
 			fmt.Println(js)
 			webView.Dispatch(func() { webView.Eval(js) })
-			//webView.Eval(js)
+			mux.RUnlock()
 		}
 	}()
 

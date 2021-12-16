@@ -19,6 +19,7 @@ var (
 	// Create Global File Logger
 	logger, errLog = gologger.New("./log.txt", 2000)
 	progressChan   = make(chan int, 1)
+	mux            = &sync.RWMutex{}
 )
 
 type FolderDetails struct {
@@ -34,12 +35,12 @@ func main() {
 }
 
 var counter = 0
+var pCount = 0
 
 func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) string {
 	var wg sync.WaitGroup
 	start := time.Now()
 	var goCount = 0
-	var pCount = 0
 	for vendor := range folderUrls {
 		logger.WritePrint(folderUrls[vendor])
 		for _, folderDetails := range folderUrls[vendor] {
@@ -51,26 +52,28 @@ func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) stri
 				sourceFolder := sourceFolder
 				sourceFileDir := filepath.Join(sourceFolder, folderDetails.path)
 				wg.Add(1)
-				go func(progressCount *int) {
+				go func(progressCount *int, mux *sync.RWMutex) {
+					mux.Lock()
 					*progressCount = *progressCount + 1
-					progressChan <- *progressCount
+					mux.Unlock()
+					//progressChan <- *progressCount
 					defer wg.Done()
 					time.Sleep(200 * time.Millisecond)
 					saveFilePath := getFilePathToSave(sourceFileDir, vendor, sourceFolder, fileInfo)
 					createDirMoveFile(sourceFileDir, saveFilePath, fileInfo.Name())
+					mux.Lock()
 					*progressCount = *progressCount - 1
-					progressChan <- *progressCount
-				}(&pCount)
+					mux.Unlock()
+					//progressChan <- *progressCount
+				}(&pCount, mux)
 				goCount = runtime.NumGoroutine()
 			}
-			time.Sleep(2 * time.Second)
 		}
 	}
 	wg.Wait()
 	logger.WritePrint("GOROUTINE: ", goCount)
 	logger.WritePrint("EXECUTION TIME: ", time.Since(start))
-
-	logger.WritePrint("Moved ")
+	pCount = 0
 	return "Successfully moved Images"
 }
 

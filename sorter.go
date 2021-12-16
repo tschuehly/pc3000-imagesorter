@@ -1,8 +1,8 @@
 package main
 
 import (
+	"bytes"
 	"errors"
-	"fmt"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/syrinsecurity/gologger"
 	"github.com/webview/webview"
@@ -13,7 +13,7 @@ import (
 	"runtime"
 	"strings"
 	"sync"
-	_ "sync"
+	"text/template"
 	"time"
 )
 
@@ -67,47 +67,66 @@ func moveImages(sourceFolder string) string {
 	return "Successfully moved Images"
 }
 
-var count int = 0
+var count = 0
 
 func createWebView() {
 
 	w := webview.New(true)
 	defer w.Destroy()
 
-	w.SetSize(1000, 600, webview.HintNone)
-
-	w.Bind("goFunctionName", func() int {
-		count++
-		fmt.Println(count)
-		return count
-	})
-
+	w.SetSize(600, 600, webview.HintNone)
+	w.Init(loadAlpine())
 	w.Bind("extractSubDirectories", func(sourceFolder string) string {
-		return moveImages(sourceFolder)
+
+		folderUrls := extractSubDirectories(sourceFolder)
+		tmpl := template.Must(template.New("html").Parse(`<div>
+    {{range $vendor, $folderArray := .}}
+        <div>
+            <h2>Hersteller: {{$vendor}}</h2>
+            {{range $folder := $folderArray}}
+                <table>
+                    <tr>{{$folder}}</tr>
+                </table>
+            {{end}}
+        </div>
+    {{end}}
+</div>
+			`))
+		var html bytes.Buffer
+		_ = tmpl.Execute(&html, folderUrls)
+		return html.String()
 	})
 
-	w.Navigate(`data:text/html,
-  <!doctype html>
-  <html>
-   <head><title>Hello</title></head>
-   <body>
-   	<h1>Hello, world!</h1>
-   	<button onclick="clickButton()">click</button>
-	<div id="div1"></div>
-	<p>Hier den Pfad eingeben</p>
-	<input name="searchTxt" type="text" id="searchTxt" class="searchField"/>
-   </body>
-   <script>
-   function clickButton(){
-       extractSubDirectories(document.getElementById("searchTxt").value).then((x) => {
-           const elem = document.getElementById("div1")
-           elem.append(x)
-           console.log(x) 
-       })
-   }
-   </script>
-  </html>`)
+	w.Navigate(`data:text/html,` +
+		//language=HTML
+		`<!doctype html>
+<html lang="de" x-data="{ pathInput: '', tbl : '' }">
+<body style="padding: 2rem">
+    <h1>JPEG Sorter</h1>
+    <p>Hier den Pfad eingeben</p>
+    <input style="display:block;width: 30rem; margin-bottom: 1rem" type="text" x-model="pathInput"/>
+
+
+    <button @click="tbl = await extractSubDirectories(pathInput)">Ordner analysieren</button>
+    
+    <div x-html=tbl></div>
+</body>
+</html>`)
 	w.Run()
+}
+func loadAlpine() string {
+	file, err := os.Open("alpinejs@3.7.0_dist_cdn.min.js")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err = file.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	b, err := ioutil.ReadAll(file)
+	return string(b)
 }
 
 func extractSubDirectories(sourceFolder string) map[string][]string {

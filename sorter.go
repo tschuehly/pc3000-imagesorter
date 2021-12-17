@@ -18,23 +18,21 @@ import (
 var (
 	// Create Global File Logger
 	logger, errLog = gologger.New("./log.txt", 2000)
-	progressChan   = make(chan int, 1)
 	mux            = &sync.RWMutex{}
 )
 
 type FolderDetails struct {
-	path      string
-	fileCount int
+	Path      string
+	FileCount int
 }
 
 func main() {
 	if errLog != nil {
 		panic(errLog)
 	}
-	createWebView()
+	openWebview()
 }
 
-var counter = 0
 var pCount = 0
 
 func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) string {
@@ -44,19 +42,18 @@ func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) stri
 	for vendor := range folderUrls {
 		logger.WritePrint(folderUrls[vendor])
 		for _, folderDetails := range folderUrls[vendor] {
-			files, _ := ioutil.ReadDir(filepath.Join(sourceFolder, folderDetails.path))
+			files, _ := ioutil.ReadDir(filepath.Join(sourceFolder, folderDetails.Path))
 			for _, fileInfo := range files {
 				fileInfo := fileInfo
 				folderDetails := folderDetails
 				vendor := vendor
 				sourceFolder := sourceFolder
-				sourceFileDir := filepath.Join(sourceFolder, folderDetails.path)
+				sourceFileDir := filepath.Join(sourceFolder, folderDetails.Path)
 				wg.Add(1)
 				go func(progressCount *int, mux *sync.RWMutex) {
 					mux.Lock()
 					*progressCount = *progressCount + 1
 					mux.Unlock()
-					//progressChan <- *progressCount
 					defer wg.Done()
 					time.Sleep(200 * time.Millisecond)
 					saveFilePath := getFilePathToSave(sourceFileDir, vendor, sourceFolder, fileInfo)
@@ -64,7 +61,6 @@ func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) stri
 					mux.Lock()
 					*progressCount = *progressCount - 1
 					mux.Unlock()
-					//progressChan <- *progressCount
 				}(&pCount, mux)
 				goCount = runtime.NumGoroutine()
 			}
@@ -72,24 +68,10 @@ func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) stri
 	}
 	wg.Wait()
 	logger.WritePrint("GOROUTINE: ", goCount)
-	logger.WritePrint("EXECUTION TIME: ", time.Since(start))
+	executionTime := time.Since(start).String()
+	logger.WritePrint("EXECUTION TIME: " + executionTime)
 	pCount = 0
-	return "Successfully moved Images"
-}
-
-func loadAlpine() string {
-	file, err := os.Open("alpinejs@3.7.0_dist_cdn.min.js")
-	if err != nil {
-		log.Fatal(err)
-	}
-	defer func() {
-		if err = file.Close(); err != nil {
-			log.Fatal(err)
-		}
-	}()
-
-	b, err := ioutil.ReadAll(file)
-	return string(b)
+	return executionTime
 }
 
 func extractSubDirectories(sourceFolder string) map[string][]FolderDetails {

@@ -5,69 +5,43 @@ import (
 	"fmt"
 	"github.com/webview/webview"
 	"html/template"
+	"io/ioutil"
+	"log"
+	"os"
 )
 
-func createWebView() {
+var (
+	webView webview.WebView
+)
 
-	webView := webview.New(true)
+func listenForProcessCount() {
+	for true {
+		var previousCount = 0
+		mux.RLock()
+		if previousCount != pCount {
+			previousCount = pCount
+			js := fmt.Sprintf(`document.getElementById("counter").innerHTML = '.%d.';`, pCount)
+			webView.Dispatch(func() { webView.Eval(js) })
+		}
+		mux.RUnlock()
+	}
+}
+
+func openWebview() {
+	webView = webview.New(true)
 	defer webView.Destroy()
 
 	webView.SetSize(1000, 1080, webview.HintNone)
 	webView.Init(loadAlpine())
 
-	var folderUrls map[string][]FolderDetails
+	bindGoFunctions()
+	go listenForProcessCount()
 
-	go func() {
-		for true {
-			//prog := <-progressChan
-			mux.RLock()
-			js := fmt.Sprintf(`document.getElementById("counter").innerHTML = '.%d.';`, pCount)
-			//js := fmt.Sprintf(`console.log(%d)`, prog)
-			fmt.Println(js)
-			webView.Dispatch(func() { webView.Eval(js) })
-			mux.RUnlock()
-		}
-	}()
-
-	webView.Bind("extractSubDirectories", func(sourceFolder string) string {
-
-		folderUrls = extractSubDirectories(sourceFolder)
-		tmpl := template.Must(template.New("html").Parse(
-			// language=GoTemplate
-			`<div>
-    {{range $vendor, $folderArray := .}}
-        <div>
-            <h3>Hersteller: {{$vendor}}</h2>
-            {{range $folder := $folderArray}}
-                <ul>
-                    <li>{{$folder}}</li>
-                </ul>
-            {{end}}
-        </div>
-    {{end}}
-</div>`))
-		var html bytes.Buffer
-		_ = tmpl.Execute(&html, folderUrls)
-		return html.String()
-	})
-
-	webView.Bind("moveImages", func(sourceFolder string) string {
-		go func() {
-			moveImages(folderUrls, sourceFolder)
-		}()
-		return "done"
-	})
-
-	webView.Bind("count", func() {
-		go func() {
-			counter = counter + 1
-			progressChan <- counter
-		}()
-	})
 	webView.Navigate(`data:text/html,` +
 		//language=HTML
 		`<!doctype html>
-<html lang="de" x-data="{ pathInput: '', tbl : '', success : '', counter : 0}">
+<html lang="de" x-data="{ pathInput: '', tbl : '', counter : 0, processing : false}"
+	style="background-color: rgb(20,20,20); color: rgb(200,200,200)">
 	<head>
 		<style>
 		</style>
@@ -83,17 +57,71 @@ func createWebView() {
 
 		<div x-show="tbl != ''" style="margin-top: 2rem;">
 			<button 
-				@click="success = await moveImages(pathInput); tbl = ''"
+				@click="processing = await moveImages(pathInput); tbl = ''"
 				style="padding: 0.7rem 2.5rem;font-size: 1.2rem;font-weight: 700;"
 			>Bilder sortieren</button>
 		</div>
-		<button @click="await count()">Count +</button>
-		<h2 id="counter" style="margin-bottom: 1rem;word-break: break-all;" x-text="counter"></div>
-		<div x-show="success != ''">
-			<h2 x-text="success"></h2>
-		</div>
+		<div x-show="processing == true">
+            <h1 id="counter" style="margin-bottom: 1rem" x-text="counter"></div>
+        </div>
+        <div>
+            <h1 id="executionTime"></h1>
+        </div>
     </body>
 </html>`)
 	webView.Run()
 
+}
+
+func bindGoFunctions() {
+	var folderUrls map[string][]FolderDetails
+
+	webView.Bind("extractSubDirectories", func(sourceFolder string) string {
+
+		folderUrls = extractSubDirectories(sourceFolder)
+		tmpl := template.Must(template.New("html").Parse(
+			// language=GoTemplate
+			`<div>
+    {{range $vendor, $folderDetailsArray := .}}
+        <div>
+            <h3>Hersteller: {{$vendor}}</h2>
+            {{range $folderDetails := $folderDetailsArray}}
+                <ul>
+                    <li>Ordnername: {{ .Path }} Dateianzahl: {{ .FileCount }}</li>
+                </ul>
+            {{end}}
+        </div>
+    {{end}}
+</div>`))
+		var html bytes.Buffer
+		err := tmpl.Execute(&html, folderUrls)
+		if err != nil {
+			logger.WritePrint("ERROR: " + err.Error())
+		}
+		return html.String()
+	})
+
+	webView.Bind("moveImages", func(sourceFolder string) bool {
+		go func() {
+			executionTime := moveImages(folderUrls, sourceFolder)
+			js := fmt.Sprintf(`document.getElementById("executionTime").innerHTML = 'Ausführungszeit: %s';`, executionTime)
+			webView.Dispatch(func() { webView.Eval(js) })
+		}()
+		return true
+	})
+}
+
+func loadAlpine() string {
+	file, err := os.Open("alpinejs@3.7.0_dist_cdn.min.js")
+	if err != nil {
+		log.Fatal(err)
+	}
+	defer func() {
+		if err = file.Close(); err != nil {
+			log.Fatal(err)
+		}
+	}()
+
+	b, err := ioutil.ReadAll(file)
+	return string(b)
 }

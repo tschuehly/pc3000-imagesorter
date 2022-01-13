@@ -2,14 +2,14 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"github.com/rwcarlsen/goexif/exif"
 	"github.com/syrinsecurity/gologger"
+	"io/fs"
 	"io/ioutil"
-	"log"
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"sync"
 	"time"
@@ -19,11 +19,20 @@ var (
 	// Create Global File Logger
 	logger, errLog = gologger.New("./log.txt", 2000)
 	mux            = &sync.RWMutex{}
+	pCount         = 0
 )
 
 type FolderDetails struct {
 	Path      string
 	FileCount int
+}
+
+type WorkerImageInfo struct {
+	FileInfo      fs.FileInfo
+	FolderDetails FolderDetails
+	Vendor        string
+	SourceFolder  string
+	SourceFileDir string
 }
 
 func main() {
@@ -33,67 +42,79 @@ func main() {
 	openWebview()
 }
 
-var pCount = 0
-
 func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) string {
-	var wg sync.WaitGroup
+	var waitGroup sync.WaitGroup
 	start := time.Now()
-	var goCount = 0
+	imageInfoJobs := make(chan WorkerImageInfo, 1000)
+	for w := 1; w <= 10000; w++ {
+		waitGroup.Add(1)
+		go imageWorker(w, &waitGroup, mux, &pCount, imageInfoJobs)
+	}
 	for vendor := range folderUrls {
 		logger.WritePrint(folderUrls[vendor])
 		for _, folderDetails := range folderUrls[vendor] {
 			files, _ := ioutil.ReadDir(filepath.Join(sourceFolder, folderDetails.Path))
 			for _, fileInfo := range files {
-				fileInfo := fileInfo
-				folderDetails := folderDetails
-				vendor := vendor
 				sourceFolder := sourceFolder
-				sourceFileDir := filepath.Join(sourceFolder, folderDetails.Path)
-				wg.Add(1)
-				go func(progressCount *int, mux *sync.RWMutex) {
-					mux.Lock()
-					*progressCount = *progressCount + 1
-					mux.Unlock()
-					defer wg.Done()
-					time.Sleep(200 * time.Millisecond)
-					saveFilePath := getFilePathToSave(sourceFileDir, vendor, sourceFolder, fileInfo)
-					createDirMoveFile(sourceFileDir, saveFilePath, fileInfo.Name())
-					mux.Lock()
-					*progressCount = *progressCount - 1
-					mux.Unlock()
-				}(&pCount, mux)
-				goCount = runtime.NumGoroutine()
+				workerImageInfo := WorkerImageInfo{
+					FileInfo:      fileInfo,
+					FolderDetails: folderDetails,
+					Vendor:        vendor,
+					SourceFolder:  sourceFolder,
+					SourceFileDir: filepath.Join(sourceFolder, folderDetails.Path),
+				}
+				imageInfoJobs <- workerImageInfo
 			}
 		}
 	}
-	wg.Wait()
-	logger.WritePrint("GOROUTINE: ", goCount)
+	close(imageInfoJobs)
+	waitGroup.Wait()
 	executionTime := time.Since(start).String()
 	logger.WritePrint("EXECUTION TIME: " + executionTime)
 	pCount = 0
 	return executionTime
 }
 
+func imageWorker(id int, waitGroup *sync.WaitGroup, mux *sync.RWMutex, progressCount *int, imageInfoJob <-chan WorkerImageInfo) {
+	defer waitGroup.Done()
+	for info := range imageInfoJob {
+		fmt.Println("worker", id, "started  job", info.FileInfo.Name())
+		mux.Lock()
+		*progressCount = *progressCount + 1
+		mux.Unlock()
+		saveFilePath := getFilePathToSave(info.SourceFileDir, info.Vendor, info.SourceFolder, info.FileInfo)
+		createDirMoveFile(info.SourceFileDir, saveFilePath, info.FileInfo.Name())
+		mux.Lock()
+		*progressCount = *progressCount - 1
+		mux.Unlock()
+		fmt.Println("worker", id, "ended  job", info.FileInfo.Name())
+	}
+}
+
 func extractSubDirectories(sourceFolder string) map[string][]FolderDetails {
+	logger.WritePrint("extractSubdirectories")
 	var folderUrls = make(map[string][]FolderDetails)
 	directories, err := ioutil.ReadDir(sourceFolder)
 	if err != nil {
-		log.Fatal(err)
+		logger.WritePrint("ERROR: could not open sourcefolder")
+		return nil
 	}
+	logger.WritePrint("extractSubdirectories")
 	for _, dir := range directories {
 		var dirName = dir.Name()
 		var dirEntryArray, err = os.ReadDir(filepath.Join(sourceFolder, dirName))
 		if err != nil {
-			logger.WritePrint(err)
-			os.Exit(1)
+			logger.WritePrint("ERROR: " + err.Error())
 		}
 		if strings.Contains(dirName, "Mpx") {
 			subString := strings.Split(dirName, "Mpx")
 			if subString[1] == "" {
 				folderUrls["noname"] = append(folderUrls["noname"], FolderDetails{dirName, len(dirEntryArray)})
+				logger.WritePrint("Added noname folder: " + dirName)
 			} else if subString[1] != "" {
 				vendor := strings.TrimSpace(subString[1])
 				folderUrls[vendor] = append(folderUrls[vendor], FolderDetails{dirName, len(dirEntryArray)})
+				logger.WritePrint("Added " + vendor + " folder: " + dirName)
 			}
 		}
 	}
@@ -164,9 +185,7 @@ func createDirMoveFile(sourceFileDir string, saveDirPath string, fileName string
 		logger.WriteString("ERROR: could not create dir: " + saveDirPath)
 		logger.WriteString(err)
 	} else {
-		logger.WritePrint("Move file: " + filepath.Join(sourceFileDir+fileName))
-		logger.WritePrint("To:        " + filepath.Join(saveDirPath+fileName))
-		err := os.Rename(filepath.Join(sourceFileDir+fileName), filepath.Join(saveDirPath+fileName))
+		err := os.Rename(filepath.Join(sourceFileDir, fileName), filepath.Join(saveDirPath, fileName))
 		if err != nil {
 			logger.WriteString("ERROR: could not move File " + sourceFileDir + fileName + " to " + saveDirPath + fileName)
 			logger.WriteString(err)

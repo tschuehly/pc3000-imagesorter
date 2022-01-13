@@ -1,3 +1,6 @@
 .idea
 log.txt
-/webview-example.exe
+bin/sorter.exe
+bin/log.txt
+/sortImages.exe
+/sorter.exe

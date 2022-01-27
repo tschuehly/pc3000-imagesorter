@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -42,11 +43,12 @@ func main() {
 	openWebview()
 }
 
-func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) string {
+func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string, threadCount string) string {
 	var waitGroup sync.WaitGroup
 	start := time.Now()
 	imageInfoJobs := make(chan WorkerImageInfo, 1000)
-	for w := 1; w <= 10000; w++ {
+	workerCount, _ := strconv.Atoi(threadCount)
+	for w := 1; w <= workerCount; w++ {
 		waitGroup.Add(1)
 		go imageWorker(w, &waitGroup, mux, &pCount, imageInfoJobs)
 	}
@@ -68,10 +70,10 @@ func moveImages(folderUrls map[string][]FolderDetails, sourceFolder string) stri
 		}
 	}
 	close(imageInfoJobs)
+	logger.WritePrint(folderUrls)
 	waitGroup.Wait()
 	executionTime := time.Since(start).String()
 	logger.WritePrint("EXECUTION TIME: " + executionTime)
-	pCount = 0
 	return executionTime
 }
 
@@ -79,13 +81,10 @@ func imageWorker(id int, waitGroup *sync.WaitGroup, mux *sync.RWMutex, progressC
 	defer waitGroup.Done()
 	for info := range imageInfoJob {
 		fmt.Println("worker", id, "started  job", info.FileInfo.Name())
-		mux.Lock()
-		*progressCount = *progressCount + 1
-		mux.Unlock()
 		saveFilePath := getFilePathToSave(info.SourceFileDir, info.Vendor, info.SourceFolder, info.FileInfo)
 		createDirMoveFile(info.SourceFileDir, saveFilePath, info.FileInfo.Name())
 		mux.Lock()
-		*progressCount = *progressCount - 1
+		*progressCount = *progressCount + 1
 		mux.Unlock()
 		fmt.Println("worker", id, "ended  job", info.FileInfo.Name())
 	}
@@ -118,6 +117,7 @@ func extractSubDirectories(sourceFolder string) map[string][]FolderDetails {
 			}
 		}
 	}
+	pCount = 0
 	return folderUrls
 }
 

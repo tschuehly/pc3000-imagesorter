@@ -40,7 +40,7 @@ func openWebview() {
 		<p>How many cpu threads do you have?</p>
 		<input style="display:block;width: 30rem; margin-bottom: 1rem" type="number" x-model="threadCount"/>
 		
-		<button @click="tbl = ''; tbl = await extractSubDirectories(pathInput);">analyse folder</button>
+		<button @click="tbl = ''; counter = 0; tbl = await extractSubDirectories(pathInput);">analyse folder</button>
 		<div x-html=tbl></div>
 
 		<div x-show="tbl != ''" style="margin-top: 2rem;">
